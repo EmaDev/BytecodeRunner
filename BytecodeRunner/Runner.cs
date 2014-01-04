@@ -80,7 +80,8 @@ namespace BytecodeRunner
         DIV,//  4   ESEGUE DIVISIONE E LA INSERISCE NELLA DESTINAZIONE          - TYPE - PAR1
         MOV,//  5   INSERISCE UNA VARIABILE NELLA DESTINAZIONE                  - TYPE - PAR1
         PRT,//  6   STAMPA DESTINAZIONE                                         - INDICE
-        EQL,//  7   DESTINAZIONE = ALTRA VAR?                                   - INDICE
+        SFC,//  7   START FUNCTION IDENTIFIER                                   - ID
+        EFC //  7   END FUNCTION IDENTIFIER                                     - ID
     }
 
     class Instruction
