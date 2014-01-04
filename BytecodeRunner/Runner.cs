@@ -44,11 +44,20 @@ namespace BytecodeRunner
                 case ErrorCode.BINARY_NOT_LOAD:
                     str += "Binary not load";
                     break;
+                case ErrorCode.BINARY_NOT_PARSED:
+                    str += "Binary not parsed";
+                    break;
                 case ErrorCode.VAR_NOT_SELECTED:
                     str += "Var not selected";
                     break;
                 case ErrorCode.VAR_CAST_ERROR:
                     str += "Var cast error";
+                    break;
+                case ErrorCode.DUPLICATED_FUNCTION_IDENTIFIER:
+                    str += "Duplicated Function identifier";
+                    break;
+                case ErrorCode.MISSING_FUNCTION_IDENTIFIER:
+                    str += "Missing Function identifier";
                     break;
                 default:
                     str += "Error type not mapped";
@@ -67,43 +76,82 @@ namespace BytecodeRunner
         BAD_VAR_TYPE,
         BROKEN_PROGRAM,
         BINARY_NOT_LOAD,
+        BINARY_NOT_PARSED,
         VAR_NOT_SELECTED,
-        VAR_CAST_ERROR
+        VAR_CAST_ERROR,
+        VAR_TYPE_ERROR,
+        DUPLICATED_FUNCTION_IDENTIFIER,
+        MISSING_FUNCTION_IDENTIFIER
     }
 
     enum ProgramOperator
     {
-        SET,//  0   SELEZIONA O CREA DESTINAZIONE                               - INDICE
-        ADD,//  1   ESEGUE SOMMA E LA INSERISCE NELLA DESTINAZIONE              - TYPE - PAR1
-        REM,//  2   ESEGUE SOTTRAZIONE E LA INSERISCE NELLA DESTINAZIONE        - TYPE - PAR1
-        MUL,//  3   ESEGUE MOLTIPLICAZIONE E LA INSERISCE NELLA DESTINAZIONE    - TYPE - PAR1
-        DIV,//  4   ESEGUE DIVISIONE E LA INSERISCE NELLA DESTINAZIONE          - TYPE - PAR1
-        MOV,//  5   INSERISCE UNA VARIABILE NELLA DESTINAZIONE                  - TYPE - PAR1
-        PRT,//  6   STAMPA DESTINAZIONE                                         - INDICE
-        SFC,//  7   START FUNCTION IDENTIFIER                                   - ID
-        EFC //  7   END FUNCTION IDENTIFIER                                     - ID
+        SET,//  0   SELECT OR CREATE DESTINATION                        - INDEX
+        ADD,//  1   SUM DESTINATION VALUE WITH PARAMETER                - TYPE - PAR
+        REM,//  2   SUBTRACT DESTINATION VALUE WITH PARAMETER           - TYPE - PAR
+        MUL,//  3   MULTIPLY DESTINATION VALUE WITH PARAMETER    		- TYPE - PAR
+        DIV,//  4   DIVIDE DESTINATION VALUE WITH PARAMETER             - TYPE - PAR
+        MOV,//  5   MOVE PARAMETER TO DESTINATION SELECTED              - TYPE - PAR
+        PRT,//  6   PRINT DESTINATION VALUE                             - INDEX
+        SSP,//  7   START SCOPE IDENTIFIER                              - ID
+        ESP,//  8   END SCOPE IDENTIFIER                                - ID
+        LCH,//  9   LAUNCH SCOPE IDENTIFIER                             - ID
+        GET //  10  READ FROM STDIN AND PUT VAR IN DESTINATION          - ID
     }
 
     class Instruction
     {
         private ProgramOperator _op;
-        public Instruction(ProgramOperator op)
+        private var _var;
+        public ProgramOperator op
+        {
+            get { return _op; }
+        }
+        public var var
+        {
+            get { return _var; }
+        }
+        public Instruction(ProgramOperator op, var var)
         {
             _op = op;
+            _var = var;
+        }
+    }
+
+    class Function
+    {
+        private int _start; // INSTRUCTION START POS
+        private int _end;   // INSTRUCTION END POS
+        public int start
+        {
+            get { return _start; }
+        }
+        public int end
+        {
+            get { return _end; }
+            set { _end = value; }
+        }
+        public Function(int start)
+        {
+            _start = start;
         }
     }
 
     class Runner
     {
-        private long _cursor;
+        private int _cursorByte;
+        private int _cursor;
         private string _pathBinary;
         private byte[] _binary;
         private bool _loaded;
+        private bool _parsed;
         private Dictionary<int, var> _vars;
-
-        //private Dictionary<int, 
+        private Dictionary<int, Function> _functions;
+        private List<Instruction> _instructions;
+        private Stack<int> _callStack;
 
         private byte _current;              // Byte corrente
+        private var _lastVar;               // Current var
         private int _container;             // indice var contenitore
         private int _selected;              // indice variabile selezionata
         private ProgramOperator _op;        // Operatore corrente
@@ -117,6 +165,7 @@ namespace BytecodeRunner
             {
                 _pathBinary = args[0];
                 _loaded = false;
+                _parsed = false;
             }
             else
             {
@@ -135,17 +184,144 @@ namespace BytecodeRunner
                 throw new RunnerError(ErrorCode.FILE_NOT_FOUND);
             }
         }
+
+        public void parse()
+        {
+            if (_loaded)
+            {
+                _vars = new Dictionary<int, var>();                 //VARIABLES CONTAINER
+                _callStack = new Stack<int>();                      //FUNCTIONS CALL STACK CONTAINER
+                _instructions = new List<Instruction>();            //INSTRUCTIONS CONTAINER
+                _functions = new Dictionary<int, Function>();       //FUNCTIONS LIST
+                _cursorByte = -1;
+                _cursor = -1;
+
+                int instructionCounter = 0;
+
+                while (hasNext())
+                {
+                    if (Enum.IsDefined(typeof(ProgramOperator), getNext()))
+                    {
+                        _op = (ProgramOperator)getCurrent();
+                        _instructions.Add(
+                            new Instruction(_op, extractVar())
+                        );
+
+                        if (_op == ProgramOperator.SSP)
+                        {
+                            if (_functions.ContainsKey(instructionCounter))
+                            {
+                                throw new RunnerError(ErrorCode.DUPLICATED_FUNCTION_IDENTIFIER);
+                            }
+                            _functions[getIndex(_lastVar)] = new Function(instructionCounter);
+                        }
+                        if (_op == ProgramOperator.ESP)
+                        {
+                            if (!_functions.ContainsKey(getIndex(_lastVar)))
+                            {
+                                throw new RunnerError(ErrorCode.MISSING_FUNCTION_IDENTIFIER);
+                            }
+                            _functions[getIndex(_lastVar)].end = instructionCounter;
+                        }
+                    }
+                    else
+                    {
+                        throw new RunnerError(ErrorCode.BAD_OPERATOR);
+                    }
+                    instructionCounter++;
+                }
+
+                _parsed = true;
+            }
+            else
+            {
+                throw new RunnerError(ErrorCode.BINARY_NOT_LOAD);
+            }
+        }
+
+        public void run()
+        {
+            if (_parsed)
+            {
+                Instruction inst;
+
+
+                for(int i = 0; i < _instructions.Count; i++)
+                {
+                    inst = _instructions[i];
+
+                    switch (inst.op)
+                    {
+                        case ProgramOperator.SET:
+                            _container = getIndex(inst.var);
+                            break;
+                        case ProgramOperator.ADD:
+                            _vars[_container] = _vars[_container] + getValue(inst.var);
+                            break;
+                        case ProgramOperator.REM:
+                            _vars[_container] = _vars[_container] - getValue(inst.var);
+                            break;
+                        case ProgramOperator.MUL:
+                            _vars[_container] = _vars[_container] * getValue(inst.var);
+                            break;
+                        case ProgramOperator.DIV:
+                            _vars[_container] = _vars[_container] / getValue(inst.var);
+                            break;
+                        case ProgramOperator.MOV:
+                            _vars[_container] = getValue(inst.var);
+                            break;
+                        case ProgramOperator.PRT:
+                            Console.Write(getValue(inst.var));
+                            break;
+                        case ProgramOperator.SSP:
+                            i = _functions[getIndex(inst.var)].end;
+                            break;
+                        case ProgramOperator.ESP:
+                            i = _callStack.Pop();
+                            break;
+                        case ProgramOperator.LCH:
+                            _callStack.Push(i);
+                            i = getIndex(inst.var) - 1;
+                            break;
+                    }
+                }
+
+               
+            }
+            else
+            {
+                throw new RunnerError(ErrorCode.BINARY_NOT_PARSED);
+            }
+        }
+
+        private int getIndex(var v)
+        {
+            if (!v.isIndex())
+            {
+                throw new RunnerError(ErrorCode.VAR_TYPE_ERROR);
+            }
+            return v.getIndex();
+        }
+        private var getValue(var v)
+        {
+            if (v.isIndex())
+            {
+                return _vars[v.getIndex()];
+            }
+            return v;
+        }
+
         private bool readNext()
         {
             if (hasNext())
-                _current = _binary[++_cursor];
+                _current = _binary[++_cursorByte];
             else
                 return false;
             return true;
         }
         private bool hasNext()
         {
-            return (_cursor < _binary.Length - 1);
+            return (_cursorByte < _binary.Length - 1);
         }
         private int getNext()
         {
@@ -170,74 +346,9 @@ namespace BytecodeRunner
                 data[bytesCounter] = (Byte)getNext();
                 bytesCounter++;
             }
-            if (t1 == VarType.INDEX)
-            {
-                return _vars[data[0]];
-            }
-
             ris.parse(t1, data);
+            _lastVar = ris;
             return ris;
-        }
-
-
-        public void run()
-        {
-            if (_loaded)
-            {
-                _vars = new Dictionary<int, var>();
-                _cursor = -1;
-                _container = -1;
-
-                while (hasNext())
-                {
-                    _op = (ProgramOperator)getNext();
-
-                    switch (_op)
-                    {
-                        case ProgramOperator.SET:
-                            _container = getNext();
-                            if (!_vars.ContainsKey(_container))
-                            {
-                                _vars.Add(_container, 0);
-                            }
-                            break;
-                        case ProgramOperator.ADD:
-                        {
-                            _vars[_container] = _vars[_container] + extractVar();
-                            break;
-                        }
-                        case ProgramOperator.REM:
-                        _vars[_container] = _vars[_container] - extractVar();
-                            break;
-                        case ProgramOperator.MUL:
-                            _vars[_container] = _vars[_container] * extractVar();
-                            break;
-                        case ProgramOperator.DIV:
-                            _vars[_container] = _vars[_container] / extractVar();
-                            break;
-                        case ProgramOperator.MOV:
-                            _vars[_container] = extractVar();
-                            break;
-                        case ProgramOperator.PRT:
-                            _selected = getNext();
-                            if (_vars.ContainsKey(_selected))
-                            {
-                                Console.WriteLine(_vars[_selected]);
-                            }
-                            else
-                            {
-                                throw new RunnerError(ErrorCode.VAR_NOT_SELECTED);
-                            }
-                            break;
-                        default:
-                            throw new RunnerError(ErrorCode.BAD_OPERATOR);
-                    }
-                }
-            }
-            else
-            {
-                throw new RunnerError(ErrorCode.BINARY_NOT_LOAD);
-            }
         }
     }
 }

@@ -174,10 +174,19 @@ namespace BytecodeRunner
         {
             return _type == VarType.BYTE;
         }
-
         public byte getByte()
         {
             if (!isByte())
+                throw new RunnerError(ErrorCode.VAR_CAST_ERROR);
+            return (byte)_obj;
+        }
+        public bool isIndex()
+        {
+            return _type == VarType.INDEX;
+        }
+        public int getIndex()
+        {
+            if (!isIndex())
                 throw new RunnerError(ErrorCode.VAR_CAST_ERROR);
             return (byte)_obj;
         }
@@ -1099,6 +1108,7 @@ namespace BytecodeRunner
                     _obj = null;
                     break;
                 case VarType.BYTE:
+                case VarType.INDEX:
                     _obj = (byte)data[0];
                     break;
                 case VarType.UBYTE:

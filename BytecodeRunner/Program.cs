@@ -15,6 +15,7 @@ namespace BytecodeRunner
             {
                 Runner runner = new Runner(args);
                 runner.load();
+                runner.parse();
                 runner.run();
             }
             catch (RunnerError re)
